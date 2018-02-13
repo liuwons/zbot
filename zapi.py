@@ -36,6 +36,21 @@ class ZApi:
     def __init__(self):
         pass
 
+    def get(self, url):
+        r = requests.get(url)
+        if r.status_code != 200:
+            raise Exception("Request error happens, url: " + url + "  code: " + str(r.status_code))
+        return r.json()
+
+    def markets(self):
+        url = 'http://api.zb.com/data/v1/markets'
+        result = ""
+        try:
+            result = self.get(url)
+        except Exception, arg:
+            print arg
+        return result
+
     def ticker(self):
         pass
 
