@@ -26,7 +26,7 @@ def main():
 
     # print zpi.order('zb_qc', zapi.ORDER_TYPE_BUY, '100', '5.0008')
     # print zpi.cancel_order('zb_qc', '2018022615327073')
-    # print zpi.get_order('zb_qc', '2018022615328784')
+    print zpi.get_order('zb_qc', '2018022715770615')
     # print zpi.get_orders('zb_qc', '1', zapi.ORDER_TYPE_BUY)
     # print zpi.get_orders_new('zb_qc', '1', '20', zapi.ORDER_TYPE_BUY)
     # print zpi.get_orders_ignore_tader_type('zb_qc', '1', '10')

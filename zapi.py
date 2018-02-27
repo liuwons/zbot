@@ -7,6 +7,8 @@ import requests
 
 suc_codes = ["1000"]
 
+DEBUG = True
+
 errcode = {
     "1000": "success",
     "1001": "normal error",
@@ -35,8 +37,12 @@ errcode = {
     "4002": "requests too frequently"
 }
 
-ORDER_TYPE_BUY = '1'
-ORDER_TYPE_SELL = '0'
+ORDER_TYPE_BUY = 1
+ORDER_TYPE_SELL = 0
+
+ORDER_STATUS_CANCELED = 1
+ORDER_STATUS_DONE = 2
+ORDER_STATUS_WAITING = 3
 
 TPL_MARKETS = 'http://api.zb.com/data/v1/markets'
 TPL_MARKET = 'http://api.zb.com/data/v1/ticker?market={MARKET}'
@@ -82,10 +88,16 @@ class ZApi:
             raise Exception("Get markets status failed")
 
     def get(self, url):
-        r = requests.get(url)
-        if r.status_code != 200:
-            raise Exception("Request error happens, url: " + url + "  code: " + str(r.status_code))
-        return r.json()
+        while True:
+            try:
+                r = requests.get(url)
+            except Exception:
+                time.sleep(0.5)
+                continue
+            if r.status_code != 200:
+                time.sleep(0.5)
+                continue
+            return r.json()
 
     def check_market_code(self, market):
         if not market:
@@ -488,11 +500,20 @@ class ZApi:
             req_time = int(round(time.time() * 1000))
             params += '&sign=%s&reqTime=%d' % (sign, req_time)
             full_url += '?' + params
-        print 'call api: ', full_url
-        r = requests.get(full_url)
-        if r.status_code != 200:
-            raise Exception("Request error happens, url: " + url + "  code: " + str(r.status_code))
-        return r.json()
+        result = {}
+        while True:
+            try:
+                r = requests.get(full_url, timeout=2)
+            except Exception:
+                time.sleep(0.5)
+                continue
+            if r.status_code != 200:
+                time.sleep(0.5)
+                continue
+            else:
+                result = r.json()
+                break
+        return result
 
     @staticmethod
     def fill(value, lenght, fill_byte):
