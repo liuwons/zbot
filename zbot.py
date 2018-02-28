@@ -1,5 +1,10 @@
 import zapi
 import json
+import time
+import logging
+
+
+logging.basicConfig(level=logging.DEBUG)
 
 
 def scale(num, sc):
@@ -7,7 +12,7 @@ def scale(num, sc):
 
 
 class P10Sell:
-    def __init__(self, api, market, init, profit=0.01, diff=0.01):
+    def __init__(self, bot_name, api, market, init, profit=0.01, diff=0.01, orders='P10Sell_orders.json'):
         self._api_ = api
         self._market_ = market
         self._init_ = init
@@ -16,6 +21,53 @@ class P10Sell:
         self._orders_ = []
         self._profit_ = profit
         self._diff_ = diff
+        self._name_ = bot_name
+        self._order_fname_ = orders
+
+        self._logger_ = logging.getLogger(name=self._name_)
+        handler = logging.FileHandler(self._name_ + '.log')
+        handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s %(name)s [%(levelname)s] %(message)s')
+        handler.setFormatter(formatter)
+        self._logger_.addHandler(handler)
+
+    def init_orders(self):
+        try:
+            js = json.load(open(self._order_fname_))
+            print 'get order: '
+            print js
+            self._orders_ = js
+            self._logger_.info('load ' + str(len(self._orders_)) + ' orders from ' + self._order_fname_)
+            return
+        except Exception, e:
+            print e
+
+        coin = self._market_.split('_')[0]
+        cur_price = float(self._api_.ticker(self._market_)['ticker']['last'])
+        self._logger_.info('current price: ' + str(cur_price))
+        total = self._init_
+        last_price = cur_price * 0.995
+        order_count = 10
+        while total > 0:
+            if order_count < 0:
+                break
+            price = scale(last_price * (1 + self._diff_), self._price_scale_)
+            if price <= last_price:
+                break
+            amount = total / 10.0
+            amount = scale(amount, self._amount_scale_)
+            if amount < 0.00001:
+                break
+            total -= amount
+            order_result = self._api_.order(self._market_, zapi.ORDER_TYPE_SELL, amount, price)
+            if order_result['code'] == '1000' or order_result['code'] == 1000:
+                order_id = str(order_result['id'])
+                self._logger_.info(order_id + ' : sell ' + str(amount) + coin + ' at price ' + str(price))
+                self._orders_ += [order_id]
+                last_price = price
+                order_count -= 1
+            else:
+                self._logger_.error('failed to sell ' + str(amount) + coin + ' at price ' + str(price) + ' errcode: ' + order_result['code'])
 
     def start(self):
         coin = self._market_.split('_')[0]
@@ -29,47 +81,28 @@ class P10Sell:
                     return
         markets = self._api_.markets()
         if self._market_ not in markets:
-            print 'get market ', self._market_, ' failed'
+            print 'Error: get market ', self._market_, ' failed'
             return
         self._amount_scale_ = markets[self._market_]['amountScale']
         self._price_scale_ = markets[self._market_]['priceScale']
-        print 'amount scale: ', self._amount_scale_
-        print 'price scale: ', self._price_scale_
-        cur_price = float(self._api_.ticker(self._market_)['ticker']['last'])
-        print 'current price: ', cur_price
-        total = self._init_
-        last_price = cur_price * 0.995
-        order_count = 10
-        while total > 0:
-            if order_count < 0:
-                break
-            price = scale(last_price * (1+self._diff_), self._price_scale_)
-            if price <= last_price:
-                break
-            amount = total / 10.0
-            amount = scale(amount, self._amount_scale_)
-            if amount < 0.00001:
-                break
-            total -= amount
-            order_result = self._api_.order(self._market_, zapi.ORDER_TYPE_SELL, amount, price)
-            if order_result['code'] == '1000' or order_result['code'] == 1000:
-                order_id = order_result['id']
-                print order_id, ' : sell ', amount, coin, ' at price ', price
-                self._orders_ += [order_id]
-                last_price = price
-                order_count -= 1
-            else:
-                print 'Error: failed to sell ', amount, coin, ' at price ', price, ' errcode: ', order_result['code']
+        self._logger_.info('amount scale: ' + str(self._amount_scale_))
+        self._logger_.info('price scale: ' + str(self._price_scale_))
+
+        self.init_orders()
+
         self.loop()
 
     def loop(self):
-        print 'start loop'
+        self._logger_.info('start loop')
+        with open(self._order_fname_, 'w') as f:
+            json.dump(self._orders_, f)
         while True:
+            time.sleep(0.5)
             for order in self._orders_:
                 detail = self._api_.get_order(self._market_, str(order))
                 stat = detail['status']
                 if stat == zapi.ORDER_STATUS_DONE:
-                    print order, ' done'
+                    self._logger_.info(str(order) + ' done')
                     order_type = detail['type']
                     trade_amount = detail['trade_amount']
                     trade_price = detail['price']
@@ -79,21 +112,23 @@ class P10Sell:
                         order_result = self._api_.order(self._market_, zapi.ORDER_TYPE_SELL, trade_amount, price)
                         if order_result['code'] == '1000' or order_result['code'] == 1000:
                             order_id = order_result['id']
-                            print order_id, ' : sell ', trade_amount, ' at price ', price
+                            self._logger_.info(str(order_id) + ' : sell ' + str(trade_amount) + ' at price ' + str(price))
                             self._orders_ += [order_id]
                         else:
-                            print 'failed to sell ', trade_amount, ' at price ', price
+                            self._logger_.error('failed to sell ' + str(trade_amount) + ' at price ' + str(price))
                     else:
                         price = scale((1 - self._profit_) * trade_price, self._price_scale_)
                         amount = scale(trade_money / price, self._amount_scale_)
                         order_result = self._api_.order(self._market_, zapi.ORDER_TYPE_BUY, amount, price)
                         if order_result['code'] == '1000' or order_result['code'] == 1000:
                             order_id = order_result['id']
-                            print order_id, ' : buy ', amount, ' at price ', price
+                            self._logger_.info(str(order_id) + ' : buy ' + str(amount) + ' at price ' + str(price))
                             self._orders_ += [order_id]
                         else:
-                            print 'failed to buy ', trade_amount, ' at price ', price
+                            self._logger_.error('failed to buy ' + str(trade_amount) + ' at price ' + str(price))
                     self._orders_.remove(order)
+                    with open(self._order_fname_, 'w') as f:
+                        json.dump(self._orders_, f)
                     break
 
 
@@ -118,7 +153,7 @@ def main():
     trades = conf['zb']['trades']
     for trade in trades:
         if trade['strategy'] == 'P10Sell':
-            bot = P10Sell(zpi, str(trade['market']), trade['init'])
+            bot = P10Sell("P10Sell", zpi, str(trade['market']), trade['init'])
             bot.start()
 
 
